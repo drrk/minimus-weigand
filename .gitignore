@@ -1,3 +1,4 @@
 *.o
 *.lst
-minimus-weigan.*
+minimus-weigen.*
+.dep
