@@ -19,6 +19,8 @@
 #include <avr/power.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
+#include "lib/LUFA/Common/Common.h"
+#include "lib/LUFA/Drivers/USB/USB.h"
 #include "bitm.h"
 #include "usb.h"
 
@@ -27,93 +29,156 @@
  *  within a device can be differentiated from one another.
  */
 USB_ClassInfo_CDC_Device_t VirtualSerial_CDC_Interface =
+{
+	.Config =
 	{
-		.Config =
-			{
-				.ControlInterfaceNumber         = 0,
+		.ControlInterfaceNumber         = 0,
 
-				.DataINEndpointNumber           = CDC_TX_EPNUM,
-				.DataINEndpointSize             = CDC_TXRX_EPSIZE,
-				.DataINEndpointDoubleBank       = false,
+		.DataINEndpointNumber           = CDC_TX_EPNUM,
+		.DataINEndpointSize             = CDC_TXRX_EPSIZE,
+		.DataINEndpointDoubleBank       = false,
 
-				.DataOUTEndpointNumber          = CDC_RX_EPNUM,
-				.DataOUTEndpointSize            = CDC_TXRX_EPSIZE,
-				.DataOUTEndpointDoubleBank      = false,
+		.DataOUTEndpointNumber          = CDC_RX_EPNUM,
+		.DataOUTEndpointSize            = CDC_TXRX_EPSIZE,
+		.DataOUTEndpointDoubleBank      = false,
 
-				.NotificationEndpointNumber     = CDC_NOTIFICATION_EPNUM,
-				.NotificationEndpointSize       = CDC_NOTIFICATION_EPSIZE,
-				.NotificationEndpointDoubleBank = false,
-			},
-	};
+		.NotificationEndpointNumber     = CDC_NOTIFICATION_EPNUM,
+		.NotificationEndpointSize       = CDC_NOTIFICATION_EPSIZE,
+		.NotificationEndpointDoubleBank = false,
+	},
+};
 
-#define WEIGEN_LEN 26
-int bit_count=0;
+uint32_t Boot_Key ATTR_NO_INIT;
+#define MAGIC_BOOT_KEY 0x4AC59ACE
+#define FLASH_SIZE_BYTES 0x4000
+#define BOOTLOADER_SEC_SIZE_BYTES 4096
+#define BOOTLOADER_START_ADDRESS (FLASH_SIZE_BYTES - BOOTLOADER_SEC_SIZE_BYTES)
 
-int main(int argc, const char *argv[]) {
-    char buf[30];
-    // Init system clock, disable WDT...
-    char dat[WEIGEN_LEN]; // 26 bit for data
-    unsigned char fcode; // for facility code (0..255)
-    unsigned int code; // for card number (0..65535)
-
-    clock_prescale_set(clock_div_1);
-    MCUSR &= ~(1 << WDRF);
-    wdt_disable();
-    
-    DDRD = 0;   
-    bit_set(EIMSK,BIT(INT0));
-    bit_set(EIMSK,BIT(INT1));     
-
-    USB_Init();
-  
-
-    sei();
-    int i=0;
-    
-    for (;;) {
-	//if (bit_is_clear(PIND,1))
-	//{
-	//	_delay_ms(1);
-	//	dat[i]=1; //    bit = 1
-	//	i++;
-	//	//loop_until_bit_is_set(PIND,1);
-	//	_delay_ms(2);
-	//}
-//	if (bit_is_clear(PIND,0))
-//	{
-//		dat[i]=0; //    bit = 0
-//		i++;
-//		//loop_until_bit_is_set(PIND,0);
-//		_delay_ms(2);
-//	}
-/*
-	if (i > WEIGEN_LEN ) {
-	int b = 0;
-	for (int a=9; a>1; a--)
+void Bootloader_Jump_Check(void) ATTR_INIT_SECTION(3);
+void Bootloader_Jump_Check(void)
+{
+	// If the reset source was the bootloader and the key is correct, clear it and jump to the bootloader
+	if ((MCUSR & (1 << WDRF)) && (Boot_Key == MAGIC_BOOT_KEY))
 	{
-	    if (dat[a]==1) fcode=fcode+(2^b);
-	    b++;
-        }
-        b=0;
-	
-	for (int a=25; a>9; a--)
-	{
-	    if (dat[a]==1) code = code + (2^b);
-	    b++;
+		Boot_Key = 0;
+		((void (*)(void))BOOTLOADER_START_ADDRESS)();
 	}
-        //Write code
-	    snprintf(buf,30,"fcode: %d code: %d\r\n", fcode, code);
-            CDC_Device_SendString(&VirtualSerial_CDC_Interface,buf);
-	    i = 0;
-	}
-*/
-	_delay_ms(1);
-	snprintf(buf,30,"%d\r\n",bit_count);
-            CDC_Device_SendString(&VirtualSerial_CDC_Interface,buf);
-        CDC_Device_USBTask(&VirtualSerial_CDC_Interface);
-        USB_USBTask();
-    }
 }
+
+void Jump_To_Bootloader(void)
+{
+	// If USB is used, detach from the bus and reset it
+	USB_Disable();
+	// Disable all interrupts
+	cli();
+	// Wait two seconds for the USB detachment to register on the host
+	Delay_MS(2000);
+	// Set the bootloader key to the magic value and force a reset
+	Boot_Key = MAGIC_BOOT_KEY;
+	wdt_enable(WDTO_250MS);
+	for (;;);
+}
+
+volatile int bit_count = 0;
+volatile unsigned char data[7];
+int main(int argc, const char *argv[]) {
+	char buf[17];
+	int event = 0;
+	clock_prescale_set(clock_div_1);
+	MCUSR &= ~(1 << WDRF);
+	wdt_disable();
+
+	// Set D0 and D1 to inputs and enable their interupts
+	// for DATA0/1
+	bit_clear(DDRD, BIT(0));   
+	bit_clear(DDRD, BIT(1));   
+	bit_set(EIMSK,BIT(INT0));
+	bit_set(EIMSK,BIT(INT1));  
+
+
+	// Set D5 and D6 to outputs for LEDs
+	bit_set(DDRD, BIT(5));
+	bit_set(DDRD, BIT(6));   
+	bit_set(PORTD,BIT(5));
+	bit_set(PORTD,BIT(6));
+
+	// Set C5 to output for buzzer
+	bit_set(DDRC, BIT(5));
+	bit_set(PORTC,BIT(5));
+
+		
+	USB_Init();
+	sei();
+
+	unsigned char byte = 0;
+	bool command = 0;
+	for (;;)
+	{
+		byte = 0; 
+		byte = (unsigned char)CDC_Device_ReceiveByte(&VirtualSerial_CDC_Interface);
+		switch (byte)
+		{
+			case 'x':
+			case 'X':
+				// Go into DFU mode
+				Jump_To_Bootloader();
+				break;
+			case 'g':
+			case 'G':
+				//toggle green led briefly (active low)
+				bit_clear(PORTD,BIT(5));
+				_delay_ms(500);
+				bit_set(PORTD,BIT(5));
+				break;
+			case 'r':
+			case 'R':
+				//toggle red led briefly (active low)
+				bit_clear(PORTD,BIT(6));
+				_delay_ms(500);
+				bit_set(PORTD,BIT(6));
+				break;
+			case 'o':
+			case 'O':
+				//toggle both leds briefly for orange
+				bit_clear(PORTD,BIT(6));
+				bit_clear(PORTD,BIT(5));
+				_delay_ms(500);
+				bit_set(PORTD,BIT(6));
+				bit_set(PORTD,BIT(5));
+				break;
+			default:
+				//Nothing
+				break;
+		}
+
+		cli();
+		if (bit_count >= 56)
+		{
+			//Write code
+			snprintf(buf,17,"%.2x%.2x%.2x%.2x%.2x%.2x%.2x\r\n", data[0], data[1], data[2], data[3], data[4], data[5], data[6]);
+			CDC_Device_SendString(&VirtualSerial_CDC_Interface,buf);
+			CDC_Device_Flush(&VirtualSerial_CDC_Interface);
+			bit_count = 0;
+		}
+		sei();
+		USB_USBTask();
+	}
+}
+
+inline set_data_bit_sc(unsigned char* data, int bitcount, int value)
+{
+	set_data_bit(data, bitcount / 8, (7-bitcount % 8), value);
+}
+
+inline set_data_bit(unsigned char* data, int byte, int bit, int value)
+{
+	if (value) {
+		bit_set(data[byte],BIT(bit));
+	} else {
+		bit_clear(data[byte],BIT(bit));
+	}
+}
+
 /** Event handler for the library USB Connection event. */
 void EVENT_USB_Device_Connect(void)
 {
@@ -127,28 +192,33 @@ void EVENT_USB_Device_Disconnect(void)
 /** Event handler for the library USB Configuration Changed event. */
 void EVENT_USB_Device_ConfigurationChanged(void)
 {
-    bool success = true;
+	bool success = true;
 
-    success &= CDC_Device_ConfigureEndpoints(&VirtualSerial_CDC_Interface);
+	success &= CDC_Device_ConfigureEndpoints(&VirtualSerial_CDC_Interface);
 }
 
 /** Event handler for the library USB Control Request reception event. */
 void EVENT_USB_Device_ControlRequest(void)
 {
-    CDC_Device_ProcessControlRequest(&VirtualSerial_CDC_Interface);
+	CDC_Device_ProcessControlRequest(&VirtualSerial_CDC_Interface);
 }
+
 // DATA 0 Int
 ISR(INT0_vect, ISR_BLOCK)
 {
+	set_data_bit_sc(data,bit_count,0);
 	bit_count++;
-	_delay_us(100);
+	_delay_us(100); // Delay to remove bounce
 }
-
 
 // DATA 1 Int
 ISR(INT1_vect, ISR_BLOCK)
 {
+	set_data_bit_sc(data,bit_count,1);
 	bit_count++;
-	_delay_us(100);
+	_delay_us(100); // Delay to remove bounce
 }
+
+
+
 
