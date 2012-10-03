@@ -19,8 +19,9 @@
 #include <avr/power.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
-#include "lib/LUFA/Common/Common.h"
-#include "lib/LUFA/Drivers/USB/USB.h"
+#include <LUFA/Version.h>
+#include <LUFA/Drivers/Misc/RingBuffer.h>
+#include <LUFA/Drivers/USB/USB.h>
 #include "bitm.h"
 #include "usb.h"
 
@@ -29,24 +30,30 @@
  *  within a device can be differentiated from one another.
  */
 USB_ClassInfo_CDC_Device_t VirtualSerial_CDC_Interface =
-{
-	.Config =
 	{
-		.ControlInterfaceNumber         = 0,
-
-		.DataINEndpointNumber           = CDC_TX_EPNUM,
-		.DataINEndpointSize             = CDC_TXRX_EPSIZE,
-		.DataINEndpointDoubleBank       = false,
-
-		.DataOUTEndpointNumber          = CDC_RX_EPNUM,
-		.DataOUTEndpointSize            = CDC_TXRX_EPSIZE,
-		.DataOUTEndpointDoubleBank      = false,
-
-		.NotificationEndpointNumber     = CDC_NOTIFICATION_EPNUM,
-		.NotificationEndpointSize       = CDC_NOTIFICATION_EPSIZE,
-		.NotificationEndpointDoubleBank = false,
-	},
-};
+		.Config =
+			{
+				.ControlInterfaceNumber   = 0,
+				.DataINEndpoint           =
+					{
+						.Address          = CDC_TX_EPADDR,
+						.Size             = CDC_TXRX_EPSIZE,
+						.Banks            = 1,
+					},
+				.DataOUTEndpoint =
+					{
+						.Address          = CDC_RX_EPADDR,
+						.Size             = CDC_TXRX_EPSIZE,
+						.Banks            = 1,
+					},
+				.NotificationEndpoint =
+					{
+						.Address          = CDC_NOTIFICATION_EPADDR,
+						.Size             = CDC_NOTIFICATION_EPSIZE,
+						.Banks            = 1,
+					},
+			},
+	};
 
 uint32_t Boot_Key ATTR_NO_INIT;
 #define MAGIC_BOOT_KEY 0x4AC59ACE
