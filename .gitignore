@@ -1,4 +1,5 @@
 *.o
 *.lst
-minimus-weigen.*
+*.d
+minimus-weigend.*
 .dep
