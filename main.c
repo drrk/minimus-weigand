@@ -24,7 +24,7 @@
 #include <LUFA/Drivers/USB/USB.h>
 #include "bitm.h"
 #include "usb.h"
-
+#include "timer.h"
 /** LUFA CDC Class driver interface configuration and state information. This structure is
  *  passed to all CDC Class driver functions, so that multiple instances of the same class
  *  within a device can be differentiated from one another.
@@ -57,7 +57,7 @@ USB_ClassInfo_CDC_Device_t VirtualSerial_CDC_Interface =
 
 uint32_t Boot_Key ATTR_NO_INIT;
 #define MAGIC_BOOT_KEY 0x4AC59ACE
-#define FLASH_SIZE_BYTES 0x4000
+#define FLASH_SIZE_BYTES 0x8000
 #define BOOTLOADER_SEC_SIZE_BYTES 4096
 #define BOOTLOADER_START_ADDRESS (FLASH_SIZE_BYTES - BOOTLOADER_SEC_SIZE_BYTES)
 
@@ -88,21 +88,23 @@ void Jump_To_Bootloader(void)
 
 volatile int bit_count = 0;
 volatile unsigned char data[7];
+volatile int flg_readcard = 0;
+
 int main(int argc, const char *argv[]) {
 	char buf[17];
-	int event = 0;
 	clock_prescale_set(clock_div_1);
 	MCUSR &= ~(1 << WDRF);
 	wdt_disable();
-
-	// Set D0 and D1 to inputs and enable their interupts
+	//_delay_ms(2000);	
+	// Set D0 and D1 to inputs, enable pull up and enable their interupts
 	// for DATA0/1
 	bit_clear(DDRD, BIT(0));   
-	bit_clear(DDRD, BIT(1));   
+	bit_clear(DDRD, BIT(1)); 
+	bit_set(PORTD,BIT(0));
+	bit_set(PORTD,BIT(1));  
 	bit_set(EIMSK,BIT(INT0));
 	bit_set(EIMSK,BIT(INT1));  
-
-
+		
 	// Set D5 and D6 to outputs for LEDs
 	bit_set(DDRD, BIT(5));
 	bit_set(DDRD, BIT(6));   
@@ -113,12 +115,10 @@ int main(int argc, const char *argv[]) {
 	bit_set(DDRC, BIT(5));
 	bit_set(PORTC,BIT(5));
 
-		
 	USB_Init();
 	sei();
 
 	unsigned char byte = 0;
-	bool command = 0;
 	for (;;)
 	{
 		byte = 0; 
@@ -172,18 +172,20 @@ int main(int argc, const char *argv[]) {
 	}
 }
 
-inline set_data_bit_sc(unsigned char* data, int bitcount, int value)
-{
-	set_data_bit(data, bitcount / 8, (7-bitcount % 8), value);
-}
 
-inline set_data_bit(unsigned char* data, int byte, int bit, int value)
+inline void set_data_bit(volatile unsigned char* data, int byte, int bit, int value)
 {
 	if (value) {
 		bit_set(data[byte],BIT(bit));
 	} else {
 		bit_clear(data[byte],BIT(bit));
 	}
+}
+
+
+inline void set_data_bit_sc(volatile unsigned char* data, int bitcount, int value)
+{
+	set_data_bit(data, bitcount / 8, (7-bitcount % 8), value);
 }
 
 /** Event handler for the library USB Connection event. */
@@ -211,7 +213,7 @@ void EVENT_USB_Device_ControlRequest(void)
 }
 
 // DATA 0 Int
-ISR(INT0_vect, ISR_BLOCK)
+ISR(INT0_vect)
 {
 	set_data_bit_sc(data,bit_count,0);
 	bit_count++;
@@ -219,7 +221,7 @@ ISR(INT0_vect, ISR_BLOCK)
 }
 
 // DATA 1 Int
-ISR(INT1_vect, ISR_BLOCK)
+ISR(INT1_vect)
 {
 	set_data_bit_sc(data,bit_count,1);
 	bit_count++;
