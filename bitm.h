@@ -1,3 +1,5 @@
+#ifndef _BITM_H
+#define _BITM_H
 #define bit_get(p,m) ((p) & (m))
 #define bit_set(p,m) ((p) |= (m))
 #define bit_clear(p,m) ((p) &= ~(m))
@@ -7,3 +9,4 @@
 #define LONGBIT(x) ((unsigned long)0x00000001 << (x)) 
 
 #define delay _delay_ms
+#endif
