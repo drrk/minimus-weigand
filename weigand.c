@@ -125,6 +125,8 @@ void RFID_Task(void)
         CDC_Device_Flush(&VirtualSerial_CDC_Interface);
         bit_count = 0;
         flg_readcard = 0;
+        for (int i=0;i<7;i++)
+            data[i]=0;
     }
     sei();
 }
